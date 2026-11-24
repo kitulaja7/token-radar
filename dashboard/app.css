@@ -1,4 +1,4 @@
-/* Token Radar radar-2 theme: dark, dense, evidence-first. No network, no external font. */
+/* Token Radar theme: dark, dense. No network, no external font. */
 :root {
   --bg: #0a0e13;
   --panel: #11161d;
@@ -69,7 +69,7 @@ button { cursor: pointer; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 4px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+th, td { padding: 4px 7px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
 th { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
 th button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; }
 th button:hover { color: var(--ink); }
@@ -84,7 +84,7 @@ td.num, th.num { text-align: right; }
 .sub { color: var(--muted); font-size: 10.5px; }
 .pos { color: var(--green); }
 .neg { color: var(--red); }
-.bar { width: 90px; height: 5px; border-radius: 3px; background: #223040; overflow: hidden; }
+.bar { width: 64px; height: 5px; border-radius: 3px; background: #223040; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--green); }
 .implied { display: flex; align-items: center; gap: 8px; }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
@@ -123,7 +123,6 @@ td.num, th.num { text-align: right; }
 .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
 .note b { color: var(--ink); }
 .note.warn { border-left: 3px solid var(--amber); padding-left: 10px; }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .empty { padding: 36px 20px; text-align: center; display: grid; gap: 8px; justify-items: center; }
 .empty p { color: var(--muted); }
 .detail-page { display: grid; gap: 12px; margin-top: 12px; }
@@ -157,7 +156,7 @@ td.num, th.num { text-align: right; }
 @media (max-width: 900px) {
   .kpis { grid-template-columns: repeat(3, 1fr); }
   .ledger-grid { grid-template-columns: repeat(2, 1fr); }
-  .two-col, .detail-grid, .cat-grid, .evidence-grid, .checks { grid-template-columns: 1fr; }
+  .detail-grid, .cat-grid, .evidence-grid, .checks { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .kpis { grid-template-columns: repeat(2, 1fr); }
