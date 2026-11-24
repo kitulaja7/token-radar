@@ -23,8 +23,9 @@
 // leave-one-out residuals, widened 1.1x; two-fold coverage is 52% and 80% against nominal 50% and 80%.
 //
 // Farm verdicts price the position: expected drop = implied x 0.000005 (a 5% community allocation
-// split across about 10,000 farmers), costs = gas + a 4.5% T-bill capital charge, hours = setup +
-// weekly actions + claim. FARM means net > 0 and net/hour > $25; MARGINAL means net > 0; else SKIP.
+// split across about 10,000 farmers), costs = gas + a 4.5% T-bill capital charge, hours =
+// research + setup + weekly upkeep + claim + unwind. FARM means net > 0 and net/hour > $25;
+// MARGINAL means net > 0; else SKIP.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -430,7 +431,10 @@ export function farmEconomics(p: SnapshotProtocol, age: number | null, implied: 
   const gas = 8 + 2 * weeks;
   const capitalCharge = capital * TBILL_RATE * (hold / 365);
   const cost = gas + capitalCharge;
-  const hours = 0.25 + weeks * (10 / 60) + 0.17;
+  // Hours are priced, not wished: research once (0.5h), wallet setup once (0.25h), one
+  // qualifying action plus a check each week (0.5h/week), claim once (0.25h), unwind once
+  // (0.25h). A 30-day hold is ~3.39h, in line with the 1.9–3.4h the leading entries show.
+  const hours = 1.25 + weeks * 0.5;
   const expectedDrop = implied * DROP_SHARE;
   const net = expectedDrop - cost;
   const netPerHour = net / hours;
@@ -500,7 +504,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEco
     {
       text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
       cost: 'under $3 of gas for the first transaction',
-      time: '5 minutes',
+      time: '15 minutes',
     },
     {
       text: action,
@@ -510,7 +514,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEco
     {
       text: `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.`,
       cost: 'about $2 of gas a week',
-      time: '10 minutes a week',
+      time: '30 minutes a week',
     },
     {
       text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot.`,
@@ -520,7 +524,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEco
     {
       text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.`,
       cost: 'no fee to check, and never pay to claim',
-      time: '10 minutes',
+      time: '15 minutes',
     },
     {
       text: `Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.`,
