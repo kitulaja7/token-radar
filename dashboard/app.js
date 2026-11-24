@@ -47,10 +47,12 @@
   ];
   /* Token-odds Brier scores (VALIDATION.md §2) and interval coverage (§3). */
   var ODDS_EVIDENCE = [
-    ['In-sample', '0.210', '0.248'],
-    ['Ten-fold CV', '0.215', '0.248'],
-    ['Walk-forward, cut 50%', '0.250', '0.216'],
-    ['Walk-forward, cut 70%', '0.257', '0.213']
+    ['Base rate', '0.248', '0.248'],
+    ['log years, alone', '0.230', '0.248'],
+    ['growth, alone', '0.236', '0.248'],
+    ['cat share, alone', '0.242', '0.248'],
+    ['ln TVL, alone', '0.246', '0.248'],
+    ['All 4 together', '0.215', '0.248']
   ];
   var RANGE_EVIDENCE = [
     ['P25–P75', '52.3%', '52.3%', '50%'],
@@ -319,6 +321,8 @@
     var horizonOut = el('output', { id: 'horizon-out', text: state.horizon === null ? 'auto · 30–60d by age' : state.horizon + ' days' });
     horizon.addEventListener('input', function () { state.horizon = parseInt(horizon.value, 10); horizonOut.textContent = state.horizon + ' days'; render(); });
     var reset = el('button', { type: 'button', class: 'btn', text: 'Reset scenario', onclick: function () { state.deposit = null; state.drop = 5; state.horizon = null; writeHash(); render(); } });
+    var fr = filteredRows(), si = 0, sn = 0, sh = 0;
+    fr.forEach(function (r) { var e = farmEcon(r); si += r.implied_value_usd; sn += e.net; sh += e.hours; });
     return el('div', { class: 'controls' },
       el('div', { class: 'row' },
         el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
@@ -327,7 +331,7 @@
         el('button', { type: 'button', class: 'btn', text: 'Export CSV', onclick: exportCSV }),
         el('button', { type: 'button', class: 'btn', text: 'Export JSON', onclick: exportJSON }),
         reset,
-        el('span', { class: 'count', text: state.tab === 'pre-token' ? filteredRows().length + ' of ' + DATA.board_size + ' rows' : DATA.live.length + ' live-token' })
+        el('span', { class: 'count', text: state.tab === 'pre-token' ? fr.length + ' rows · ' + fmtUsd(si) + ' implied in view · ' + fmtUsd2(sn) + ' total net · ' + Math.round(sh) + ' hours' : DATA.live.length + ' live-token' })
       ),
       el('div', { class: 'row chips' }, chips),
       el('div', { class: 'sliders' },
@@ -491,12 +495,13 @@
         evBox('Value if a token launches · 88 comparables',
           el('thead', null, el('tr', null, th('Term'), th('LOO', 1), th('WF', 1), th(''))), tA, null),
         evBox('Token odds · Brier score · 437 peers',
-          el('thead', null, el('tr', null, th('Test'), th('Model', 1), th('Base', 1))), tB,
-          'Walk-forward worse than base — label time-censored (newest cohort ~31%). Odds are CV-validated, not forward-validated.'),
+          el('thead', null, el('tr', null, th('Term'), th('Model', 1), th('Base', 1))), tB,
+          'Walk-forward Brier 0.25–0.26, worse than base — label time-censored (newest cohort ~31%). Odds are CV-validated, not forward-validated.'),
         evBox('Is the printed range honest?',
           el('thead', null, el('tr', null, th('Interval'), th('Fold 1', 1), th('Fold 2', 1), th('Nominal', 1))), tC,
           'From LOO residuals, widened ×1.1. Drop-one odds feature (CV): log years 0.224, ln TVL 0.219, category 0.221, growth 0.222 — all help.')
-      )
+      ),
+      el('p', { class: 'note', text: 'Fitted: launch 9.0121, slope 0.3992, category -0.165..+0.120. Odds logit (std): 0.1774, log years +0.479, ln TVL +0.333, cat share +0.373, growth -0.580.' })
     );
   }
 
@@ -573,10 +578,12 @@
     var xs = pts.map(function (p) { return Math.log10(p.tvl_usd); });
     var ys = pts.map(function (p) { return Math.log10(p.mcap_usd); });
     var mx = Math.log10(row.tvl_usd), my = Math.log10(row.launch_value_usd);
-    var x0 = Math.min.apply(null, xs.concat([mx])) - 0.12;
-    var x1 = Math.max.apply(null, xs.concat([mx])) + 0.12;
-    var y0 = Math.min.apply(null, ys.concat([my])) - 0.12;
-    var y1 = Math.max.apply(null, ys.concat([my])) + 0.12;
+    var by = DATA.rows.map(function (r) { return Math.log10(r.launch_value_usd); });
+    var bx = DATA.rows.map(function (r) { return Math.log10(r.tvl_usd); });
+    var x0 = Math.min.apply(null, xs.concat(bx, [mx])) - 0.12;
+    var x1 = Math.max.apply(null, xs.concat(bx, [mx])) + 0.12;
+    var y0 = Math.min.apply(null, ys.concat(by, [my])) - 0.12;
+    var y1 = Math.max.apply(null, ys.concat(by, [my])) + 0.12;
     function X(v) { return ML + (Math.log10(v) - x0) / (x1 - x0) * PW; }
     function Y(v) { return MT + PH - (Math.log10(v) - y0) / (y1 - y0) * PH; }
     function tick(v) {
@@ -613,6 +620,8 @@
     ctx.strokeStyle = '#3fb27f'; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.fillStyle = '#58a6ff';
     pts.forEach(function (p) { ctx.beginPath(); ctx.arc(X(p.tvl_usd), Y(p.mcap_usd), 3, 0, Math.PI * 2); ctx.fill(); });
+    ctx.fillStyle = '#bc8cff';
+    DATA.rows.forEach(function (r) { ctx.beginPath(); ctx.arc(X(r.tvl_usd), Y(r.launch_value_usd), 2, 0, Math.PI * 2); ctx.fill(); });
     var sx = X(row.tvl_usd), sy = Y(row.launch_value_usd);
     ctx.beginPath();
     ctx.moveTo(sx, sy - 7); ctx.lineTo(sx + 7, sy); ctx.lineTo(sx, sy + 7); ctx.lineTo(sx - 7, sy);
@@ -640,7 +649,7 @@
     return el('div', { class: 'detail-box' },
       el('h3', { text: 'Launch value vs TVL — the 24 live-token comparables' }),
       canvas,
-      el('p', { class: 'note', text: 'Dots: the 24 live-token protocols this page carries. Line: the fitted launch-value curve for ' + (row.category || 'this category') + ' — it passes through this protocol’s launch value (◆). Shaded band: P25–P75 of the leave-one-out residuals.' })
+      el('p', { class: 'note', text: 'Blue dots: the 24 live-token protocols. Violet dots: the 197 board rows at (TVL, launch value). Line: the fitted launch-value curve for ' + (row.category || 'this category') + ' — it passes through this protocol’s launch value (◆). Shaded band: P25–P75 of the leave-one-out residuals.' })
     );
   }
 
@@ -795,6 +804,7 @@
     } else {
       shell.appendChild(lede());
       shell.appendChild(kpis());
+      shell.appendChild(el('p', { class: 'formula', text: 'Implied = exp(9.0121 + 0.3992·ln TVL + category) × odds — fitted on 88 traded tokens, tested held-out.' }));
       if (state.tab === 'pre-token') {
         shell.appendChild(ledgerSection());
         shell.appendChild(evidenceSection());
