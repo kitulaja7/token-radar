@@ -107,7 +107,7 @@ di tiap baris board (implied_low/high = P25–P75, implied_p10/p90).
   untuk protokol mana pun — diskon ×0,5 adalah kehati-hatian atas baris yang tidak divetted house,
   bukan koefisien yang difit.
 - Implied: $19.212 – $29.316.299; semua 40 watchlist ada; rank 1..197; sorted desc.
-- Verdict: **13 FARM / 58 MARGINAL / 126 SKIP** (drop share 5e-6, T-bill 4,5%, benchmark $25/jam).
+- Verdict: **2 FARM / 69 MARGINAL / 126 SKIP** (drop share 5e-6, T-bill 4,5%, benchmark $25/jam; jam kerja = riset 0,5 + setup 0,25 + upkeep 0,5/minggu + claim 0,25 + unwind 0,25 — fix P4, 24 Nov 2026; sebelumnya 13/58/126 dengan 1,13 jam).
 - Ledger: semua 758 protokol di tepat satu grup — watchlist 40, early 138, off-list 19, token
   trades 144, token no cap 272, bridge 44, staked 43, exchange 42, versioned 11, wrapped 5,
   unranked 0.
