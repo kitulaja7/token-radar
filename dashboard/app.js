@@ -13,6 +13,10 @@
   /* The launch-value curve, fit on the snapshot's 88 comparables (see VALIDATION.md). */
   var LAUNCH_A = 9.0121;
   var LAUNCH_B = 0.3992;
+  /* Leave-one-out residual quantiles + widening (lib/model.ts): the P25–P75 band. */
+  var LOG_Q25 = -1.1159;
+  var LOG_Q75 = 1.133;
+  var INTERVAL_SCALE = 1.1;
   var CAT_EFFECT = {
     'AI Agents': -0.0029, 'Basis Trading': 0.1198, CDP: -0.0463,
     'Collateral Management': 0.0513, DOR: -0.0114, 'Decentralized AI': 0.0344,
@@ -34,12 +38,23 @@
   var EVIDENCE = [
     ['Flat (median multiple)', '×4.90', '×4.49', 'baseline'],
     ['+ size curve (ln TVL)', '×3.24', '×2.55', 'kept'],
-    ['+ category effect (ridge 64)', '×3.09', '×2.45', 'kept'],
+    ['+ category effect', '×3.09', '×2.45', 'kept'],
     ['+ chain count', '×3.10', '×2.38', 'dropped'],
     ['+ age (log age)', '×3.15', '×2.66', 'dropped'],
     ['+ 7-day growth', '×3.17', '×2.27', 'dropped'],
     ['+ chains + age', '×3.06', '×2.98', 'dropped'],
     ['+ chains + age + growth', '×3.26', '×2.67', 'dropped']
+  ];
+  /* Token-odds Brier scores (VALIDATION.md §2) and interval coverage (§3). */
+  var ODDS_EVIDENCE = [
+    ['In-sample', '0.210', '0.248'],
+    ['Ten-fold CV', '0.215', '0.248'],
+    ['Walk-forward, cut 50%', '0.250', '0.216'],
+    ['Walk-forward, cut 70%', '0.257', '0.213']
+  ];
+  var RANGE_EVIDENCE = [
+    ['P25–P75', '52.3%', '52.3%', '50%'],
+    ['P10–P90', '75.0%', '84.1%', '80%']
   ];
   var LEDGER_ORDER = ['ranked watchlist', 'ranked early', 'ranked off-list', 'token trades',
     'token no cap', 'bridge', 'staked', 'exchange', 'versioned', 'wrapped', 'unranked'];
@@ -121,7 +136,9 @@
     var gas = 8 + 2 * weeks;
     var cc = capital * TBILL * (hold / 365);
     var cost = gas + cc;
-    var hours = 0.25 + weeks * (10 / 60) + 0.17;
+    // Same hours as lib/model.ts: research 0.5 + setup 0.25 + claim 0.25 + unwind 0.25
+    // fixed, plus 0.5h/week upkeep. A 30-day hold is ~3.39h.
+    var hours = 1.25 + weeks * 0.5;
     var expected = row.implied_value_usd * drop;
     var net = expected - cost;
     var nph = net / hours;
@@ -162,11 +179,11 @@
     var capital = econ.capital;
     var hold = econ.hold;
     return [
-      { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
+      { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '15 minutes' },
       { text: actionFor(row, capital, chain), cost: '$' + capital + ' of capital and about $8 of gas', time: '15 minutes to set up' },
-      { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'about $2 of gas a week', time: '10 minutes a week' },
+      { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'about $2 of gas a week', time: '30 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
-      { text: "Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.", cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
+      { text: "Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.", cost: 'no fee to check, and never pay to claim', time: '15 minutes' },
       { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' },
       { text: 'At the $' + BENCH + '-an-hour benchmark this position expects a ' + fmtUsd2(econ.expected) + ' drop against ' + fmtUsd2(econ.cost) + ' of costs (gas ' + fmtUsd2(econ.gas) + ' plus a ' + fmtUsd2(econ.cc) + ' capital charge), a net of ' + fmtUsd2(econ.net) + ' over ' + econ.hours + ' hours, ' + fmtUsd2(econ.nph) + ' an hour, so the verdict is ' + econ.verdict + '.', cost: 'the ' + fmtUsd2(econ.cost) + ' above', time: econ.hours + ' hours of work' }
     ].map(stepText);
@@ -251,11 +268,11 @@
     return el('section', { class: 'lede' },
       el('h1', { text: DATA.board_size + ' pre-token protocols, ranked by implied value' }),
       el('p', null,
-        'The watchlist is the floor: ', el('b', { text: '40 protocols' }),
-        ' with at least $50M of TVL and no token on record. The early radar adds ',
-        el('b', { text: DATA.early_size + ' pre-token protocols' }),
-        ' below that floor, and ', el('b', { text: DATA.off_list_size + ' off-list rows' }),
-        ' at half credit. Implied value = launch value × token odds — a model, not a promise.'
+        'Watchlist floor: ', el('b', { text: '40 protocols' }),
+        ' ≥$50M TVL, no token. Early radar adds ',
+        el('b', { text: DATA.early_size + ' pre-token' }),
+        ' below the floor; ', el('b', { text: DATA.off_list_size + ' off-list' }),
+        ' at half credit. Implied = launch × odds — a model, not a promise.'
       )
     );
   }
@@ -266,8 +283,8 @@
   function kpis() {
     return el('section', { class: 'kpis' },
       kpi('Walk-forward miss', '×' + V.wf_miss.toFixed(2), 'flat ×' + V.flat_wf_miss.toFixed(2) + ' · LOO ×' + V.loo_miss.toFixed(2) + ' vs flat ×' + V.flat_loo_miss.toFixed(1)),
-      kpi('Range honesty', '52.3<span class="u">%</span>', 'in P25–P75 (nominal 50%) · 75–84% in P10–P90 (nominal 80%)'),
-      kpi('Token odds · Brier', V.odds_brier_cv.toFixed(3), 'ten-fold CV vs base ' + V.odds_brier_base.toFixed(3) + ' · WF 0.25, label time-censored'),
+      kpi('Range honesty', '52.3<span class="u">%</span>', 'in P25–P75 (nominal 50%) · P10–P90 75–84% (nom 80%)'),
+      kpi('Token odds · Brier', V.odds_brier_cv.toFixed(3), 'ten-fold CV · base ' + V.odds_brier_base.toFixed(3) + ' · WF 0.25 (time-censored)'),
       kpi('Terms kept', '2 <span class="u">of 8</span>', 'size + category ridge · chains, age, growth dropped'),
       kpi('Worth farming · $25/hr', V.farm_count + ' <span class="u">FARM</span>', V.marginal_count + ' MARGINAL · ' + V.skip_count + ' SKIP · of ' + DATA.board_size + ' rows'),
       kpi('Watchlist', DATA.watchlist_size + '<span class="u">/' + DATA.watchlist_size + '</span>', DATA.board_size + ' rows · ' + DATA.early_size + ' early · ' + DATA.off_list_size + ' off-list ×0.5')
@@ -276,7 +293,7 @@
 
   function controls() {
     var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
-    var search = el('input', { type: 'search', id: 'q', placeholder: 'Search name, category or chain', value: state.q, 'aria-label': 'Search the board' });
+    var search = el('input', { type: 'search', id: 'q', placeholder: 'Search name', value: state.q, 'aria-label': 'Search the board' });
     search.addEventListener('input', function () { state.q = search.value; writeHash(); render(); });
     var select = el('select', { id: 'category', 'aria-label': 'Filter by category' },
       el('option', { value: 'all', text: 'All categories' }),
@@ -309,15 +326,14 @@
         el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live)),
         el('button', { type: 'button', class: 'btn', text: 'Export CSV', onclick: exportCSV }),
         el('button', { type: 'button', class: 'btn', text: 'Export JSON', onclick: exportJSON }),
-        el('span', { class: 'count', text: state.tab === 'pre-token' ? filteredRows().length + ' of ' + DATA.board_size + ' rows shown' : DATA.live.length + ' live-token protocols' })
+        reset,
+        el('span', { class: 'count', text: state.tab === 'pre-token' ? filteredRows().length + ' of ' + DATA.board_size + ' rows' : DATA.live.length + ' live-token' })
       ),
       el('div', { class: 'row chips' }, chips),
       el('div', { class: 'sliders' },
         el('div', { class: 'slider' + (state.deposit === null ? ' is-model' : ''), id: 'deposit-wrap' }, el('label', { for: 'deposit', text: 'Deposit' }), deposit, depositOut),
         el('div', { class: 'slider', id: 'drop-wrap' }, el('label', { for: 'drop', text: 'Drop share' }), drop, dropOut),
-        el('div', { class: 'slider' + (state.horizon === null ? ' is-model' : ''), id: 'horizon-wrap' }, el('label', { for: 'horizon', text: 'Horizon' }), horizon, horizonOut),
-        reset,
-        el('span', { class: 'sub', text: 'Sliders re-price the farm economics live; the model values stay the board’s own.' })
+        el('div', { class: 'slider' + (state.horizon === null ? ' is-model' : ''), id: 'horizon-wrap' }, el('label', { for: 'horizon', text: 'Horizon' }), horizon, horizonOut)
       )
     );
   }
@@ -429,41 +445,57 @@
     }));
     return el('section', { class: 'panel section' },
       el('h2', { text: 'Protocol accounting — all 758 protocols, exactly one group each' }),
-      el('p', { class: 'sub', text: 'Every protocol in the snapshot lands in exactly one group. Ranked rows are the board; the rest are set aside with a reason, not hidden.' }),
+      el('p', { class: 'sub', text: 'Every protocol lands in exactly one group. Ranked rows are the board; the rest are set aside, not hidden.' }),
       bar, grid,
       el('div', { class: 'checks' },
-        el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'This table = board.json: ', el('b', { text: CHECK.launch + ' of ' + DATA.board_size + ' launch values recomputed in-page and exact' }), ', ', el('b', { text: CHECK.implied + ' of ' + DATA.board_size + ' implied values within ' + (CHECK.maxRel * 100).toFixed(1) + '%' }), ' (odds stored to 4 dp).'),
-        el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'Ranks 1–', el('b', { text: String(DATA.board_size) }), ' in order, implied strictly non-increasing: ', el('b', { text: sorted ? 'yes' : 'NO — check the board' }), '.'),
+        el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'board.json: ', el('b', { text: CHECK.launch + '/' + DATA.board_size + ' launch exact' }), ', ', el('b', { text: CHECK.implied + '/' + DATA.board_size + ' implied within ' + (CHECK.maxRel * 100).toFixed(1) + '%' }), ' (odds 4 dp).'),
+        el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'Ranks 1–', el('b', { text: String(DATA.board_size) }), ' in order, implied non-increasing: ', el('b', { text: sorted ? 'yes' : 'NO — check the board' }), '.'),
         el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'Ledger totals ', el('b', { text: total + ' of 758' }), ' protocols; watchlist coverage ', el('b', { text: DATA.watchlist_size + ' of ' + DATA.watchlist_size }), '.'),
-        el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'Board and dashboard read the same data.js written by main.ts from the same board.')
+        el('div', null, el('span', { class: 'ok', text: '✓ ' }), 'Board and dashboard read the same data.js from main.ts.')
       )
     );
   }
 
   function evidenceSection() {
-    var tbody = el('tbody');
+    var tA = el('tbody');
     EVIDENCE.forEach(function (t) {
       var cls = t[3] === 'kept' ? 'kept' : t[3] === 'dropped' ? 'dropped' : '';
       var dec = t[3] === 'kept' ? el('span', { class: 'k', text: 'KEPT' }) : t[3] === 'dropped' ? el('span', { class: 'd', text: 'DROPPED' }) : el('span', { class: 'base', text: 'baseline' });
-      tbody.appendChild(el('tr', { class: cls },
+      tA.appendChild(el('tr', { class: cls },
         el('td', { text: t[0] }),
         el('td', { class: 'num', text: t[1] }),
         el('td', { class: 'num', text: t[2] }),
         el('td', null, dec)
       ));
     });
+    var tB = el('tbody');
+    ODDS_EVIDENCE.forEach(function (t) {
+      tB.appendChild(el('tr', null, el('td', { text: t[0] }), el('td', { class: 'num', text: t[1] }), el('td', { class: 'num', text: t[2] })));
+    });
+    var tC = el('tbody');
+    RANGE_EVIDENCE.forEach(function (t) {
+      tC.appendChild(el('tr', null, el('td', { text: t[0] }), el('td', { class: 'num', text: t[1] }), el('td', { class: 'num', text: t[2] }), el('td', { class: 'num', text: t[3] })));
+    });
+    function evBox(title, thead, tbody, note) {
+      return el('div', { class: 'ev' },
+        el('h3', { text: title }),
+        el('div', { class: 'table-wrap' }, el('table', { class: 'evidence' }, thead, tbody)),
+        note ? el('p', { class: 'note', text: note }) : null
+      );
+    }
+    var th = function (t, num) { return el('th', { scope: 'col', class: num ? 'num' : null, text: t }); };
     return el('section', { class: 'panel section' },
       el('h2', { text: 'Out-of-sample evidence — every term tested twice' }),
-      el('p', { class: 'sub', text: 'A term is kept only when it lowers the miss in BOTH leave-one-out and walk-forward tests. Miss is the median multiplicative error on the 88 token-trading comparables; walk-forward fits on older listings and tests on newer ones.' }),
-      el('div', { class: 'table-wrap' },
-        el('table', { class: 'evidence' },
-          el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Term' }), el('th', { scope: 'col', class: 'num', text: 'LOO miss' }), el('th', { scope: 'col', class: 'num', text: 'Walk-forward miss' }), el('th', { scope: 'col', text: 'Decision' }))),
-          tbody
-        )
-      ),
-      el('div', { class: 'two-col' },
-        el('p', { class: 'note' }, el('b', { text: 'Token odds. ' }), 'In-sample Brier 0.2100, ten-fold cross-validation Brier ', el('b', { text: '0.2154' }), ' vs base rate 0.2476. Walk-forward Brier 0.25 — worse than base — because the token label is time-censored (see the model note below).'),
-        el('p', { class: 'note' }, el('b', { text: 'Interval honesty. ' }), 'P25–P75 coverage 52.3% / 52.3% (nominal 50%); P10–P90 75.0% / 84.1% (nominal 80%). Intervals come from leave-one-out residuals, widened ×1.1.')
+      el('p', { class: 'sub', text: 'Kept only if it lowers the miss in BOTH tests. Miss = median multiplicative error on the 88 token-trading comparables.' }),
+      el('div', { class: 'evidence-grid' },
+        evBox('Value if a token launches · 88 comparables',
+          el('thead', null, el('tr', null, th('Term'), th('LOO', 1), th('WF', 1), th(''))), tA, null),
+        evBox('Token odds · Brier score · 437 peers',
+          el('thead', null, el('tr', null, th('Test'), th('Model', 1), th('Base', 1))), tB,
+          'Walk-forward worse than base — label time-censored (newest cohort ~31%). Odds are CV-validated, not forward-validated.'),
+        evBox('Is the printed range honest?',
+          el('thead', null, el('tr', null, th('Interval'), th('Fold 1', 1), th('Fold 2', 1), th('Nominal', 1))), tC,
+          'From LOO residuals, widened ×1.1. Drop-one odds feature (CV): log years 0.224, ln TVL 0.219, category 0.221, growth 0.222 — all help.')
       )
     );
   }
@@ -471,9 +503,10 @@
   function modelSection() {
     var catRows = Object.keys(CAT_EFFECT).map(function (k) { return [k, CAT_EFFECT[k]]; })
       .sort(function (a, b) { return b[1] - a[1]; });
-    var catCols = [0, 1, 2].map(function (c) {
+    var perCol = Math.ceil(catRows.length / 6);
+    var catCols = [0, 1, 2, 3, 4, 5].map(function (c) {
       var tbody = el('tbody');
-      catRows.slice(c * 9, c * 9 + 9).forEach(function (kv) {
+      catRows.slice(c * perCol, c * perCol + perCol).forEach(function (kv) {
         tbody.appendChild(el('tr', null,
           el('td', { text: kv[0] }),
           el('td', { class: 'num', text: (kv[1] > 0 ? '+' : '') + kv[1].toFixed(3) })
@@ -483,7 +516,7 @@
     });
     return el('section', { class: 'panel section' },
       el('h2', { text: 'How implied value is computed' }),
-      el('p', { class: 'sub', text: 'Two fitted pieces, never a name list and never TVL times a flat multiple. Every row is scored by the same two functions of the snapshot figures.' }),
+      el('p', { class: 'sub', text: 'Two fitted pieces, never TVL × a flat multiple. Every row is scored by the same two functions.' }),
       el('div', { class: 'formula' },
         el('div', null, el('b', { text: 'launch = ' }), 'exp(9.0121 + 0.3992 · ln(TVL) + category effect) — ridge λ=64, fit on 88 token-trading comparables'),
         el('div', null, el('b', { text: 'odds = ' }), 'logit(log years listed, ln TVL, category token share, clamped 7-day growth) — fit on 437 stand-alone peers, λ=1'),
@@ -491,31 +524,187 @@
       ),
       el('p', { class: 'note' }, el('b', { text: 'Category effects (ridge λ=64, all 27, largest first). ' })),
       el('div', { class: 'cat-grid' }, catCols),
-      el('p', { class: 'note' }, 'Off-list rows are protocols at or above the $50M floor that the house did not watchlist; the snapshot carries no parent data, so no parent is claimed for any of them and the ×0.5 is caution for rows the house did not vet, not a fitted coefficient.'),
-      el('p', { class: 'note warn' }, el('b', { text: 'Honest note on the odds. ' }), 'Odds are validated by ten-fold cross-validation (Brier 0.215 vs base 0.248). Walk-forward Brier is 0.25 — worse than base — because the token label is time-censored: the newest cohort had only ~31% tokens recorded, so forward validation under-predicts them. This dashboard states the cross-validated number, not a walk-forward claim.')
+      el('p', { class: 'note' }, 'Off-list rows (≥$50M, not watchlisted) carry ×0.5 caution — the snapshot has no parent data, so no parent is claimed. Not a fitted coefficient.'),
+      el('p', { class: 'note warn' }, el('b', { text: 'Honest note on the odds. ' }), 'Ten-fold CV Brier 0.215 vs base 0.248. Walk-forward Brier 0.25 — worse than base — because the token label is time-censored (newest cohort ~31% recorded). This page states the CV number, not a forward claim.')
     );
   }
 
-  var dialog = el('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' });
-  dialog.addEventListener('close', function () { state.selected = null; writeHash(); });
+  /* The farm economics at an explicit deposit / drop share / hold, for the sensitivity grid. */
+  function econAt(row, deposit, dropPerM, hold) {
+    var drop = dropPerM * 1e-6;
+    var weeks = hold / 7;
+    var gas = 8 + 2 * weeks;
+    var cc = deposit * TBILL * (hold / 365);
+    var cost = gas + cc;
+    var hours = 1.25 + weeks * 0.5; // same hours as lib/model.ts (see farmEcon)
+    var expected = row.implied_value_usd * drop;
+    var net = expected - cost;
+    return { cost: r2(cost), net: r2(net), nph: r2(net / hours) };
+  }
 
-  function openDetail(slug) {
+  /* The nearest priced peers: live-token protocols, nearest in log TVL, same category first.
+     Each peer's model launch is recomputed from its TVL and category, so cap ÷ model is the
+     model's miss on a token that actually trades. */
+  function nearestPeers(row) {
+    var target = Math.log(row.tvl_usd);
+    return DATA.live.map(function (p) {
+      var eff = CAT_EFFECT[p.category || 'Unknown'] || 0;
+      var pred = Math.exp(LAUNCH_A + LAUNCH_B * Math.log(p.tvl_usd) + eff);
+      return {
+        p: p, pred: pred,
+        same: (p.category || '') === (row.category || ''),
+        d: Math.abs(Math.log(p.tvl_usd) - target),
+        ratio: p.mcap_usd ? p.mcap_usd / pred : null
+      };
+    }).sort(function (a, b) {
+      if (a.same !== b.same) return a.same ? -1 : 1;
+      return a.d - b.d;
+    }).slice(0, 6);
+  }
+
+  /* Log-log scatter: market cap vs TVL for the 24 live-token protocols, the fitted
+     launch-value curve for this row's category, the P25–P75 band, and this row's own
+     marker at (TVL, launch value). Canvas 2D, no library, no network. Logical size
+     460x230, drawn at 2x for crisp lines. */
+  function drawScatter(ctx, row, pts, eff, lo, hi) {
+    var W = 460, H = 230, ML = 46, MR = 10, MT = 8, MB = 30;
+    var PW = W - ML - MR, PH = H - MT - MB;
+    ctx.scale(2, 2);
+    var xs = pts.map(function (p) { return Math.log10(p.tvl_usd); });
+    var ys = pts.map(function (p) { return Math.log10(p.mcap_usd); });
+    var mx = Math.log10(row.tvl_usd), my = Math.log10(row.launch_value_usd);
+    var x0 = Math.min.apply(null, xs.concat([mx])) - 0.12;
+    var x1 = Math.max.apply(null, xs.concat([mx])) + 0.12;
+    var y0 = Math.min.apply(null, ys.concat([my])) - 0.12;
+    var y1 = Math.max.apply(null, ys.concat([my])) + 0.12;
+    function X(v) { return ML + (Math.log10(v) - x0) / (x1 - x0) * PW; }
+    function Y(v) { return MT + PH - (Math.log10(v) - y0) / (y1 - y0) * PH; }
+    function tick(v) {
+      if (v >= 1e9) return '$' + (v / 1e9).toFixed(0) + 'B';
+      if (v >= 1e6) return '$' + (v / 1e6).toFixed(0) + 'M';
+      if (v >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'K';
+      return '$' + v.toFixed(0);
+    }
+    function curve(v) { return Math.exp(LAUNCH_A + LAUNCH_B * Math.log(v) + eff); }
+    var e, i, v;
+    ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
+    ctx.strokeStyle = '#1f2a36'; ctx.fillStyle = '#8b98a5'; ctx.lineWidth = 1;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (e = Math.ceil(x0); e <= Math.floor(x1); e++) {
+      v = Math.pow(10, e);
+      ctx.beginPath(); ctx.moveTo(X(v), MT); ctx.lineTo(X(v), MT + PH); ctx.stroke();
+      ctx.fillText(tick(v), X(v), MT + PH + 4);
+    }
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (e = Math.ceil(y0); e <= Math.floor(y1); e++) {
+      v = Math.pow(10, e);
+      ctx.beginPath(); ctx.moveTo(ML, Y(v)); ctx.lineTo(ML + PW, Y(v)); ctx.stroke();
+      ctx.fillText(tick(v), ML - 5, Y(v));
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+    var N = 60;
+    ctx.beginPath();
+    for (i = 0; i <= N; i++) { v = Math.pow(10, x0 + (x1 - x0) * i / N); if (i === 0) ctx.moveTo(X(v), Y(curve(v) * hi)); else ctx.lineTo(X(v), Y(curve(v) * hi)); }
+    for (i = N; i >= 0; i--) { v = Math.pow(10, x0 + (x1 - x0) * i / N); ctx.lineTo(X(v), Y(curve(v) * lo)); }
+    ctx.closePath(); ctx.fillStyle = 'rgba(63, 178, 127, 0.13)'; ctx.fill();
+    ctx.beginPath();
+    for (i = 0; i <= N; i++) { v = Math.pow(10, x0 + (x1 - x0) * i / N); if (i === 0) ctx.moveTo(X(v), Y(curve(v))); else ctx.lineTo(X(v), Y(curve(v))); }
+    ctx.strokeStyle = '#3fb27f'; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = '#58a6ff';
+    pts.forEach(function (p) { ctx.beginPath(); ctx.arc(X(p.tvl_usd), Y(p.mcap_usd), 3, 0, Math.PI * 2); ctx.fill(); });
+    var sx = X(row.tvl_usd), sy = Y(row.launch_value_usd);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - 7); ctx.lineTo(sx + 7, sy); ctx.lineTo(sx, sy + 7); ctx.lineTo(sx - 7, sy);
+    ctx.closePath(); ctx.fillStyle = '#e3a008'; ctx.fill();
+    ctx.strokeStyle = '#0a0e13'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#8b98a5'; ctx.font = '10px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('TVL (log scale)', ML + PW / 2, H - 1);
+    ctx.save();
+    ctx.translate(10, MT + PH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Market cap (log scale)', 0, 0);
+    ctx.restore();
+  }
+
+  function scatterBox(row) {
+    var pts = DATA.live.filter(function (p) { return p.tvl_usd > 0 && p.mcap_usd > 0; });
+    var eff = CAT_EFFECT[row.category || 'Unknown'] || 0;
+    var lo = Math.exp(LOG_Q25 * INTERVAL_SCALE);
+    var hi = Math.exp(LOG_Q75 * INTERVAL_SCALE);
+    var canvas = el('canvas', { class: 'scatter', width: 920, height: 460, role: 'img', 'aria-label': 'Scatter plot of market cap against TVL for the 24 live-token protocols, with the fitted launch-value curve and its P25 to P75 band' });
+    var ctx = canvas.getContext('2d');
+    if (ctx) drawScatter(ctx, row, pts, eff, lo, hi);
+    return el('div', { class: 'detail-box' },
+      el('h3', { text: 'Launch value vs TVL — the 24 live-token comparables' }),
+      canvas,
+      el('p', { class: 'note', text: 'Dots: the 24 live-token protocols this page carries. Line: the fitted launch-value curve for ' + (row.category || 'this category') + ' — it passes through this protocol’s launch value (◆). Shaded band: P25–P75 of the leave-one-out residuals.' })
+    );
+  }
+
+  function openDetail(slug) { state.selected = slug; writeHash(); render(); window.scrollTo(0, 0); }
+  function closeDetail() { state.selected = null; writeHash(); render(); window.scrollTo(0, 0); }
+
+  /* The full-page detail view: derivation, nearest priced peers, farm verdict, sensitivity
+     grid, benchmarks and the farm plan. Replaces the old modal dialog. */
+  function detailPage(slug) {
     var row = DATA.rows.filter(function (r) { return r.slug === slug; })[0];
-    if (!row) return;
-    state.selected = slug;
-    writeHash();
-    dialog.textContent = '';
+    if (!row) return el('div', { class: 'panel' }, el('div', { class: 'empty' },
+      el('h2', { text: 'Protocol not found' }),
+      el('button', { class: 'btn primary', type: 'button', text: '← Board', onclick: closeDetail })));
     var econ = farmEcon(row);
     var c = recompute(row);
     var steps = farmSteps(row, econ);
-    var inner = el('div', { class: 'detail-inner' },
+    var eff = CAT_EFFECT[row.category || 'Unknown'] || 0;
+    var base = Math.exp(LAUNCH_A);
+    var size = Math.exp(LAUNCH_B * Math.log(row.tvl_usd));
+    var cat = Math.exp(eff);
+    var disc = row.group === 'off-list' ? OFF_DISCOUNT : 1;
+    var dropEff = state.drop * 1e-6;
+    var hold = state.horizon !== null ? state.horizon : holdFor(row.age_days);
+    var beOdds = econ.cost / (row.launch_value_usd * dropEff * disc);
+    var launch80 = row.launch_value_usd * Math.pow(0.8, LAUNCH_B);
+    var implied80 = launch80 * row.token_odds * disc;
+    var net80 = implied80 * dropEff - econ.cost;
+    var peers = nearestPeers(row);
+    var peerRows = peers.map(function (x) {
+      return el('tr', null,
+        el('td', null, el('b', { text: x.p.name })),
+        el('td', { text: x.p.category || 'Other' }),
+        el('td', { class: 'num', text: fmtUsd(x.p.tvl_usd) }),
+        el('td', { class: 'num', text: fmtUsd(x.p.mcap_usd) }),
+        el('td', { class: 'num', text: x.p.mcap_usd ? '×' + (x.p.mcap_usd / x.p.tvl_usd).toFixed(2) : 'n/a' }),
+        el('td', { class: 'num', text: x.ratio ? '×' + x.ratio.toFixed(2) : 'n/a' }));
+    });
+    var deposits = [500, 1000, 2500, 10000, 30000];
+    var drops = [2, 5, 10];
+    var gridHead = el('tr', null, el('th', { scope: 'col', text: 'Drop \\ deposit' }),
+      deposits.map(function (d) { return el('th', { scope: 'col', class: 'num', text: '$' + d.toLocaleString('en-US') }); }));
+    var gridBody = el('tbody');
+    drops.forEach(function (dp) {
+      var cells = [el('td', { text: dp + ' per 1M' })];
+      deposits.forEach(function (d) {
+        var g = econAt(row, d, dp, hold);
+        var isModel = d === econ.capital && dp === state.drop;
+        cells.push(el('td', { class: 'num' + (isModel ? ' model-cell' : '') + (g.net > 0 ? ' pos' : g.net < 0 ? ' neg' : ''), text: fmtUsd2(g.net) }));
+      });
+      gridBody.appendChild(el('tr', null, cells));
+    });
+    function eqRow(label, value) { return el('div', null, el('span', { text: label }), el('b', { text: value })); }
+    return el('div', { class: 'detail-page' },
+      el('button', { class: 'btn back', type: 'button', text: '← Board', onclick: closeDetail }),
       el('div', { class: 'detail-head' },
         el('div', null,
           el('span', { class: 'rankline', text: 'Rank ' + row.rank + ' of ' + DATA.board_size + ' · ' + row.group.toUpperCase() + (row.group === 'off-list' ? ' ×0.5' : '') }),
           el('h2', { id: 'detail-title', text: row.name }),
-          el('p', { class: 'sub', text: (row.category || 'Other') + ' on ' + (row.chains && row.chains.length ? row.chains.join(', ') : 'an unnamed chain') + ' · TVL ' + fmtUsd(row.tvl_usd) + ' · 7d ' + fmtPct(row.change_7d) + ' · age ' + fmtAge(row.age_days) })
+          el('p', { class: 'sub', text: (row.category || 'Other') + ' on ' + (row.chains && row.chains.length ? row.chains.slice(0, 3).join(', ') + (row.chains.length > 3 ? ' +' + (row.chains.length - 3) + ' more' : '') : 'an unnamed chain') + ' · TVL ' + fmtUsd(row.tvl_usd) + ' · 7d ' + fmtPct(row.change_7d) + ' · age ' + fmtAge(row.age_days) })
         ),
-        el('button', { class: 'close', type: 'button', 'aria-label': 'Close details', text: 'Close', onclick: function () { dialog.close(); } })
+        el('div', { class: 'implied-big' },
+          el('span', { text: 'Implied value — a model estimate' }),
+          el('b', { text: fmtUsd(row.implied_value_usd) }),
+          el('span', { class: 'sub', text: 'If it launches ' + fmtUsd(row.launch_value_usd) + ' · Token odds ' + (row.token_odds * 100).toFixed(0) + '% · P25–P75 ' + fmtUsd(row.implied_low_usd) + '–' + fmtUsd(row.implied_high_usd) }))
       ),
       el('div', { class: 'verdict-line' },
         el('span', { class: 'pill ' + verdictClass(econ.verdict), text: econ.verdict }),
@@ -526,37 +715,74 @@
         el('span', { class: 'sub', text: 'at the $25-an-hour benchmark' })
       ),
       el('div', { class: 'detail-grid' },
-        el('div', { class: 'detail-box' },
-          el('h3', { text: 'Implied value' }),
-          el('div', { class: 'equation' },
-            el('div', null, el('span', { text: 'TVL' }), el('b', { text: fmtUsd(row.tvl_usd) })),
-            el('div', null, el('span', { text: 'Launch value' }), el('b', { text: fmtUsd(row.launch_value_usd) })),
-            el('div', null, el('span', { text: 'Token odds' }), el('b', { text: (row.token_odds * 100).toFixed(1) + '%' })),
-            row.group === 'off-list' ? el('div', null, el('span', { text: 'Off-list discount' }), el('b', { text: '×0.5' })) : null,
-            el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'big', text: fmtUsd(row.implied_value_usd) })),
-            el('div', null, el('span', { text: 'P25–P75 range' }), el('b', { text: fmtUsd(row.implied_low_usd) + ' – ' + fmtUsd(row.implied_high_usd) })),
-            el('div', null, el('span', { text: 'P10–P90 range' }), el('b', { text: fmtUsd(row.implied_p10_usd) + ' – ' + fmtUsd(row.implied_p90_usd) }))
+        el('div', null,
+          el('div', { class: 'detail-box' },
+            el('h3', { text: 'How the figure is made' }),
+            el('div', { class: 'equation' },
+              eqRow('TVL', fmtUsd(row.tvl_usd)),
+              eqRow('Base multiple (exp 9.0121)', '×' + Math.round(base).toLocaleString('en-US')),
+              eqRow('Size curve (TVL^0.3992)', '×' + size.toFixed(0)),
+              eqRow('Category effect (' + (row.category || 'Other') + ')', '×' + cat.toFixed(3)),
+              eqRow('= Launch value', fmtUsd(row.launch_value_usd)),
+              eqRow('Token odds (logit)', (row.token_odds * 100).toFixed(1) + '%'),
+              row.group === 'off-list' ? eqRow('Off-list discount', '×0.5') : null,
+              eqRow('= Implied value', fmtUsd(row.implied_value_usd))
+            ),
+            el('p', { class: 'sub', text: 'Recomputed in-page: launch ' + fmtUsd(c.launch) + (c.launchOK ? ' — matches board.json.' : ' — DIFFERS from board.json.') + ' Implied ' + fmtUsd(c.implied) + (c.impliedOK ? ' — within ' + (c.rel * 100).toFixed(1) + '% of board.json (odds stored to 4 dp).' : ' — DIFFERS from board.json.') + ' This is an estimate, not a price.' }),
+            el('p', { class: 'note', text: 'Tested, not used: chain count (LOO ×3.10, WF ×2.38), age (×3.15, ×2.66), 7-day growth (×3.17, ×2.27) — each lowered walk-forward but worsened leave-one-out, so all three were dropped. Kept: size curve (×3.24, ×2.55) and category ridge (×3.09, ×2.45).' })
           ),
-          el('p', { class: 'sub', text: 'Recomputed in-page: launch ' + fmtUsd(c.launch) + (c.launchOK ? ' — matches board.json.' : ' — DIFFERS from board.json.') + ' Implied ' + fmtUsd(c.implied) + (c.impliedOK ? ' — within ' + (c.rel * 100).toFixed(1) + '% of board.json (odds stored to 4 dp).' : ' — DIFFERS from board.json.') + ' This is an estimate, not a price.' })
+          el('div', { class: 'detail-box' },
+            el('h3', { text: 'Nearest priced peers — their tokens trade' }),
+            el('div', { class: 'table-wrap' }, el('table', { class: 'peers' },
+              el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Token' }), el('th', { scope: 'col', text: 'Category' }), el('th', { scope: 'col', class: 'num', text: 'TVL' }), el('th', { scope: 'col', class: 'num', text: 'Market cap' }), el('th', { scope: 'col', class: 'num', text: 'Cap / TVL' }), el('th', { scope: 'col', class: 'num', text: 'Cap ÷ model' }))),
+              el('tbody', null, peerRows)
+            )),
+            el('p', { class: 'note', text: 'Nearest in log TVL among the 24 live-token protocols this page carries, same category first. Cap ÷ model is the market cap divided by the launch value this model predicts for that TVL — near ×1.00 the model prices it right.' })
+          ),
+          scatterBox(row)
         ),
-        el('div', { class: 'detail-box' },
-          el('h3', { text: 'Farm plan' }),
-          el('p', { class: 'plan-summary', text: steps.length + ' steps over ' + econ.hold + ' days on ' + usd0.format(econ.capital) }),
-          el('ol', { class: 'steps' }, steps.map(function (s) {
-            var at = s.indexOf(' Cost: ');
-            var action = at >= 0 ? s.slice(0, at) : s;
-            var tail = at >= 0 ? s.slice(at + 1) : '';
-            return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
-          }))
+        el('div', null,
+          el('div', { class: 'detail-box' },
+            el('h3', { text: 'Farm verdict' }),
+            el('div', { class: 'equation' },
+              eqRow('Deposit', usd0.format(econ.capital)),
+              eqRow('Hold', econ.hold + ' days'),
+              eqRow('Gas', fmtUsd2(econ.gas)),
+              eqRow('Capital charge (4.5% T-bill)', fmtUsd2(econ.cc)),
+              eqRow('Cost', fmtUsd2(econ.cost)),
+              eqRow('Expected drop', fmtUsd2(econ.expected)),
+              eqRow('Net', fmtUsd2(econ.net)),
+              eqRow('Net / hour', fmtUsd2(econ.nph))
+            ),
+            el('p', { class: 'sub', text: econ.verdict + ': ' + fmtUsd2(econ.net) + ' over ' + econ.hours + ' hours at the $25-an-hour benchmark.' })
+          ),
+          el('div', { class: 'detail-box' },
+            el('h3', { text: 'Net by drop share × deposit' }),
+            el('div', { class: 'table-wrap' }, el('table', { class: 'grid' }, el('thead', null, gridHead), gridBody)),
+            el('p', { class: 'note', text: 'Net dollars for the same ' + hold + '-day hold. The highlighted cell is the model scenario (deposit ' + usd0.format(econ.capital) + ', drop ' + state.drop + ' per 1M).' })
+          ),
+          el('div', { class: 'detail-box' },
+            el('h3', { text: 'Benchmarks' }),
+            el('div', { class: 'equation' },
+              eqRow('Same deposit in a 4.5% T-bill, ' + econ.hold + 'd', fmtUsd2(econ.cc)),
+              eqRow('Break-even odds (net = 0)', beOdds > 1 ? '>100%' : (beOdds * 100).toFixed(1) + '%'),
+              eqRow('If TVL falls 20%', fmtUsd(implied80) + ' implied · ' + fmtUsd2(net80) + ' net')
+            ),
+            el('p', { class: 'note', text: 'Break-even odds is the token odds at which the expected drop exactly covers the cost. This row’s odds are ' + (row.token_odds * 100).toFixed(0) + '% — ' + (row.token_odds > beOdds ? 'above' : 'below') + ' break-even.' })
+          ),
+          el('div', { class: 'detail-box' },
+            el('h3', { text: 'Farm plan' }),
+            el('p', { class: 'plan-summary', text: steps.length + ' steps over ' + econ.hold + ' days on ' + usd0.format(econ.capital) }),
+            el('ol', { class: 'steps' }, steps.map(function (s) {
+              var at = s.indexOf(' Cost: ');
+              var action = at >= 0 ? s.slice(0, at) : s;
+              var tail = at >= 0 ? s.slice(at + 1) : '';
+              return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
+            }))
+          )
         )
       )
     );
-    dialog.appendChild(inner);
-    if (typeof dialog.showModal === 'function') {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      dialog.setAttribute('open', '');
-    }
   }
 
   function render() {
@@ -564,19 +790,21 @@
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
-    shell.appendChild(lede());
-    shell.appendChild(kpis());
-    shell.appendChild(controls());
-    shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
-    if (state.tab === 'pre-token') {
-      shell.appendChild(ledgerSection());
-      shell.appendChild(evidenceSection());
-      shell.appendChild(modelSection());
+    if (state.selected) {
+      shell.appendChild(detailPage(state.selected));
+    } else {
+      shell.appendChild(lede());
+      shell.appendChild(kpis());
+      if (state.tab === 'pre-token') {
+        shell.appendChild(ledgerSection());
+        shell.appendChild(evidenceSection());
+      }
+      shell.appendChild(controls());
+      shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
+      if (state.tab === 'pre-token') shell.appendChild(modelSection());
     }
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');
-    if (!dialog.isConnected) app.appendChild(dialog);
-    if (state.selected) openDetail(state.selected);
   }
 
   function readHash() {
@@ -638,6 +866,6 @@
   readHash();
   render();
   window.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && dialog.open) dialog.close();
+    if (e.key === 'Escape' && state.selected) closeDetail();
   });
 })();
