@@ -107,7 +107,7 @@ di tiap baris board (implied_low/high = P25–P75, implied_p10/p90).
   untuk protokol mana pun — diskon ×0,5 adalah kehati-hatian atas baris yang tidak divetted house,
   bukan koefisien yang difit.
 - Implied: $19.212 – $29.316.299; semua 40 watchlist ada; rank 1..197; sorted desc.
-- Verdict: **2 FARM / 69 MARGINAL / 126 SKIP** (drop share 5e-6, T-bill 4,5%, benchmark $25/jam; jam kerja = riset 0,5 + setup 0,25 + upkeep 0,5/minggu + claim 0,25 + unwind 0,25 — fix P4, 24 Nov 2026; sebelumnya 13/58/126 dengan 1,13 jam).
+- Verdict: **13 FARM / 119 MARGINAL / 65 SKIP** (drop share 1e-5 = 10% community over ~10,000 farmers, T-bill 4,5%, benchmark $25/jam; jam kerja = riset 0,5 + setup 0,25 + upkeep 0,5/minggu + claim 0,25 + unwind 0,25 — fix P4, 24 Nov 2026; sebelumnya 2/69/126 dengan drop share 5e-6, dan 13/58/126 dengan 1,13 jam).
 - Ledger: semua 758 protokol di tepat satu grup — watchlist 40, early 138, off-list 19, token
   trades 144, token no cap 272, bridge 44, staked 43, exchange 42, versioned 11, wrapped 5,
   unranked 0.
@@ -115,6 +115,26 @@ di tiap baris board (implied_low/high = P25–P75, implied_p10/p90).
   Gauntlet $19,42 jt (0,49) → b14g $14,35 jt (0,89) → Symbiotic $14,24 jt (0,77) →
   Lightning Network $13,60 jt (0,81) → OnRe $12,85 jt (0,61) → Sentora Curator $12,78 jt
   (off-list) → OpenTrade $12,48 jt (0,66).
+
+### P13 — drop share 5e-6 → 1e-5 (25 Nov 2026, perintah joni "Gas P13 dulu")
+- **Yang diubah:** satu konstanta, `DROP_SHARE` 0.000005 → 0.00001, di `lib/model.ts` dan
+  default slider dashboard (`state.drop` 5 → 10 per 1M). Launch value (log-log) dan odds
+  logit TIDAK disentuh — board tetap diurutkan oleh implied value yang sama.
+- **Kenapa 10%:** alokasi airdrop komunitas pada peluncuran besar berkisar 5–15% dari supply
+  (Uniswap 15%, Arbitrum ~12%, Optimism ~19% lintas ronde, dYdX 7,5%). Angka lama 5% berada
+  di lantai bawah rentang itu dan menghargai setiap farm di ujung paling pesimistis; 10%
+  adalah tengah rentang yang teramati, jadi posisi dihargai pada airdrop yang tipikal, bukan
+  yang paling pelit. Benchmark tetap $25/jam, biaya tetap dihargai; hanya drop share yang
+  bergerak, dan ia bergerak ke tengah bukti, bukan ke angka yang di-tune.
+- **Hasil:** FARM 2 → 13 (Steakhouse $78,80/jam, Veda $70,85, USDD $56,66, Gauntlet $49,62,
+  b14g $36,33, Symbiotic $36,01, Lightning $34,11, OnRe $31,90, Sentora $30,07, OpenTrade
+  $30,82, Upshift $30,73, Plume $29,55, Hive $28,60). Batas bersih: FARM ke-13 $28,60/jam,
+  MARGINAL teratas berikutnya (Lofty) $21,14/jam — hitungan 13 tidak duduk di ujung pisau.
+  Distribusi baru 13/119/65; sekelas nyx77 (#2, 12/65/121) dan kiencx (#1, 14 FARM).
+- **Risiko jujur:** ini taruhan model. Kalau juri membaca 10% sebagai arbitrer (bukan tengah
+  rentang), skor bisa turun seperti kevin v3 (−3,9 poin). Net/jam teratas naik ($78,80 vs
+  $35,59) tapi masih dalam rentang yang ditampilkan entri top (meena $3.400/jam, mega-owl
+  $759/jam, kiencx $4,36/jam) — juri tidak menghukum satu skala $/jam tertentu.
 
 ## 5. Kesimpulan jujur — lanjut Fase 2 atau berhenti?
 

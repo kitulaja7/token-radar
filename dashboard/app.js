@@ -25,7 +25,6 @@
     'Risk Curators': 0.0286, 'Staking Pool': -0.0738, 'Token Locker': 0.0385,
     Yield: -0.0849, 'Yield Aggregator': -0.062
   };
-  var DROP_SHARE = 0.000005;
   var TBILL = 0.045;
   var BENCH = 25;
   var OFF_DISCOUNT = 0.5;
@@ -67,7 +66,7 @@
   var state = {
     q: '', category: 'all', filter: 'all', tab: 'pre-token',
     sort: 'implied', dir: -1, selected: null,
-    deposit: null, drop: 5, horizon: null
+    deposit: null, drop: 10, horizon: null
   };
 
   var usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -315,7 +314,7 @@
     var horizon = el('input', { type: 'range', id: 'horizon', min: '7', max: '180', step: '1', value: state.horizon === null ? '30' : String(state.horizon), 'aria-label': 'Hold horizon in days' });
     var horizonOut = el('output', { id: 'horizon-out', text: state.horizon === null ? 'auto · 30–60d' : state.horizon + ' days' });
     horizon.addEventListener('input', function () { state.horizon = parseInt(horizon.value, 10); horizonOut.textContent = state.horizon + ' days'; render(); });
-    var reset = el('button', { type: 'button', class: 'btn', text: 'Reset', onclick: function () { state.deposit = null; state.drop = 5; state.horizon = null; writeHash(); render(); } });
+    var reset = el('button', { type: 'button', class: 'btn', text: 'Reset', onclick: function () { state.deposit = null; state.drop = 10; state.horizon = null; writeHash(); render(); } });
     var fr = filteredRows(), si = 0, sn = 0, sh = 0;
     fr.forEach(function (r) { var e = farmEcon(r); si += r.implied_value_usd; sn += e.net; sh += e.hours; });
     return el('div', { class: 'controls' },
@@ -333,7 +332,8 @@
         el('div', { class: 'slider' + (state.deposit === null ? ' is-model' : ''), id: 'deposit-wrap' }, el('label', { for: 'deposit', text: 'Deposit' }), deposit, depositOut),
         el('div', { class: 'slider', id: 'drop-wrap' }, el('label', { for: 'drop', text: 'Drop share' }), drop, dropOut),
         el('div', { class: 'slider' + (state.horizon === null ? ' is-model' : ''), id: 'horizon-wrap' }, el('label', { for: 'horizon', text: 'Horizon' }), horizon, horizonOut)
-      )
+      ),
+      el('p', { class: 'note', text: 'Drop share 10 per 1M = 10% community; airdrops give 5-15% (Uniswap 15%, Arbitrum 12%).' })
     );
   }
 

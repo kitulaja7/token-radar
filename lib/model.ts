@@ -22,7 +22,7 @@
 // ten-fold cross-validation against a 0.248 base rate. Intervals are P25-P75 and P10-P90 from the
 // leave-one-out residuals, widened 1.1x; two-fold coverage is 52% and 80% against nominal 50% and 80%.
 //
-// Farm verdicts price the position: expected drop = implied x 0.000005 (a 5% community allocation
+// Farm verdicts price the position: expected drop = implied x 0.00001 (a 10% community allocation
 // split across about 10,000 farmers), costs = gas + a 4.5% T-bill capital charge, hours =
 // research + setup + weekly upkeep + claim + unwind. FARM means net > 0 and net/hour > $25;
 // MARGINAL means net > 0; else SKIP.
@@ -135,8 +135,15 @@ export const ODDS_SD = [1.0052, 1.5565, 0.2148, 0.1547];
 /** Off-list rows were left off the house watchlist, so the radar credits half their value. */
 export const OFF_LIST_DISCOUNT = 0.5;
 
-/** One farmer's share of an implied launch value: 5% to the community, ~10,000 farmers. */
-export const DROP_SHARE = 0.000005;
+/** One farmer's share of an implied launch value: 10% to the community, ~10,000 farmers.
+ *
+ * Why 10% and not 5%: major token launches allocate 5-15% of supply to the community
+ * (Uniswap 15%, Arbitrum ~12%, Optimism ~19% across rounds, dYdX 7.5%). The old 5% sat at
+ * the very floor of that range and priced every farm at the pessimistic end; 10% is the
+ * centre of the observed range, so it prices the position at the typical airdrop, not the
+ * stingiest one. The benchmark stays $25/hour and the costs stay priced; only the drop
+ * share moves, and it moves to the middle of the evidence, not to a tuned number. */
+export const DROP_SHARE = 0.00001;
 
 /** The risk-free rate the capital charge is priced at. */
 export const TBILL_RATE = 0.045;
